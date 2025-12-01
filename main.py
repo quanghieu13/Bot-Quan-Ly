@@ -107,7 +107,9 @@ async def on_message(message):
                 await msg.delete()
                 
                 admin = await bot.fetch_user(ID_ADMIN)
-                await admin.send(f"⚠️ ĐÃ MUTE 5P: {message.author} đã vi phạm.")
+                await admin.send(
+                    f"⚠️ **Vi phạm**: {message.author.display_name} nhắn: `{message.content}`\n.Đã mute chó này 5 phút"
+                )
                 
             except discord.errors.Forbidden:
                 await message.channel.send(f"❌ Bot thiếu quyền MUTE {message.author.mention}!")
