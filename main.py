@@ -44,7 +44,6 @@ intents.presences = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 # --- THÊM CÂY LỆNH SLASH COMMANDS ---
-tree = discord.app_commands.CommandTree(bot)
 
 # ======================================================
 # PHẦN 2: SỰ KIỆN BOT VÀ CHỨC NĂNG KIỂM DUYỆT
@@ -53,7 +52,7 @@ tree = discord.app_commands.CommandTree(bot)
 @bot.event
 async def on_ready():
     # --- ĐỒNG BỘ LỆNH SLASH COMMANDS ---
-    await tree.sync() 
+    await bot.tree.sync()
     print('----------------------------------')
     print(f'🤖 Bot đã đăng nhập: {bot.user}')
     print(f'🛡️ Admin ID: {ID_ADMIN}')
@@ -62,10 +61,10 @@ async def on_ready():
     print('----------------------------------')
 
 # --- LỆNH SLASH COMMAND MỚI ---
-@tree.command(name="ping", description="Kiểm tra độ trễ (latency) của Bot.")
+@bot.tree.command(name="ping", description="Kiểm tra độ trễ (latency) của Bot.")
 async def ping_slash(interaction: discord.Interaction):
     # Lệnh slash command dùng interaction.response.send_message
-    await interaction.response.send_message(f'Pong! Độ trễ: {round(bot.latency * 1000)}ms', ephemeral=True)
+    await interaction.response.send_message(f'Độ trễ: {round(bot.latency * 1000)}ms', ephemeral=True)
 
 
 @bot.event
