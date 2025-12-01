@@ -12,6 +12,9 @@ import datetime # Cần cho chức năng Timeout (Mute)
 
 # BẮT BUỘC: Thay thế bằng ID Discord của bạn (Admin)
 ID_ADMIN = 1065648216911122506
+# THAY ID KÊNH CÔNG KHAI ĐỂ BOT THÔNG BÁO MUTE VÀO ĐÂY!
+MUTE_LOG_CHANNEL_ID = 1444909829469634590 
+
 
 # Hàm 1: Đọc danh sách từ cấm
 def load_tu_cam(filename="tucam.txt"):
@@ -81,7 +84,7 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # --- ĐỊNH NGHĨA NGOẠI LỆ (Exemptions) ---
+    # --- ĐỊNH NGHĨA NGOẠI LỆ (Exemptions: Bot, Admin, Whitelist) ---
     is_exempt = (message.author.bot) or \
                 (message.author.id == ID_ADMIN) or \
                 (message.author.id in ALLOWED_USER_IDS)
@@ -89,14 +92,13 @@ async def on_message(message):
     # --- KIỂM TRA TỪ CẤM ---
     if not is_exempt:
         noi_dung = message.content.lower()
-        # Thay đổi: Giờ là một list để lưu TẤT CẢ các từ bị phát hiện
         tu_cam_bi_phat_hien = [] 
         
         for tu in TU_CAM:
             if tu in noi_dung:
                 tu_cam_bi_phat_hien.append(tu) 
         
-        if tu_cam_bi_phat_hien: # Nếu list này không rỗng (có từ cấm)
+        if tu_cam_bi_phat_hien:
             try:
                 # 1. Tự động xóa tin nhắn
                 await message.delete()
@@ -105,13 +107,20 @@ async def on_message(message):
                 duration = datetime.timedelta(minutes=5)
                 await message.author.timeout(duration) 
                 
-                # 3. Gửi cảnh báo công khai và tự xóa sau 5s
+                # 3. Gửi LOG CÔNG KHAI vào kênh MUTE_LOG_CHANNEL
+                log_channel = bot.get_channel(MUTE_LOG_CHANNEL_ID)
+                if log_channel:
+                    await log_channel.send(
+                        f"Thằng **{message.author.display_name}** đã bị mute 5 phút."
+                    )
+                
+                # 4. Gửi cảnh báo tạm thời và tự xóa sau 5s
                 msg = await message.channel.send(
                     f"🚫 {message.author.mention}, bị cấm chat 5 phút vì vi phạm từ cấm!")
                 await asyncio.sleep(5)
                 await msg.delete()
                 
-                # 4. Báo cáo chi tiết cho Admin (ĐỊNH DẠNG CUỐI CÙNG)
+                # 5. Báo cáo chi tiết cho Admin (DM)
                 detected_words_str = ", ".join(tu_cam_bi_phat_hien)
                 admin = await bot.fetch_user(ID_ADMIN)
                 await admin.send(
@@ -123,7 +132,6 @@ async def on_message(message):
                 await message.channel.send(f"❌ Bot thiếu quyền MUTE {message.author.mention}!")
                 
             except Exception as e:
-                # Xử lý lỗi Rate Limit và lỗi chung
                 if isinstance(e, discord.errors.HTTPException) and e.status == 429:
                     print("⚠️ Bị Rate Limit. Đang nghỉ 3 giây...")
                     await asyncio.sleep(3)
