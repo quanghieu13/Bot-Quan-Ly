@@ -235,6 +235,43 @@ async def userinfo(interaction: discord.Interaction, member: discord.Member):
     embed.add_field(name="Ngày tạo acc", value=member.created_at.strftime("%d/%m/%Y"), inline=False)
     embed.add_field(name="Ngày vào Server", value=member.joined_at.strftime("%d/%m/%Y"), inline=False)
     await interaction.response.send_message(embed=embed)
+# --- LỆNH UNWARN (THU HỒI CẢNH CÁO) ---
+@bot.tree.command(name="unwarn", description="Xóa cảnh cáo của thành viên")
+@app_commands.describe(member="Thành viên cần xóa warn", index="Số thứ tự warn cần xóa (Để trống sẽ xóa cái mới nhất)")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def unwarn(interaction: discord.Interaction, member: discord.Member, index: int = None):
+    warnings = load_warnings()
+    user_id = str(member.id)
+
+    # 1. Kiểm tra xem người này có warn nào không
+    if user_id not in warnings or not warnings[user_id]:
+        await interaction.response.send_message(f"✅ **{member.name}** rất ngoan, chưa có cảnh cáo nào để xóa.", ephemeral=True)
+        return
+
+    total_warns = len(warnings[user_id])
+
+    # 2. Xử lý logic xóa
+    try:
+        if index is None:
+            # Nếu không nhập số -> Xóa cái cuối cùng (Warn mới nhất)
+            removed_warn = warnings[user_id].pop()
+            msg = f"✅ Đã thu hồi cảnh cáo **mới nhất** của **{member.name}**.\n📝 Lý do warn đó là: `{removed_warn['reason']}`"
+        else:
+            # Nếu nhập số -> Kiểm tra số có hợp lệ không
+            if index <= 0 or index > total_warns:
+                await interaction.response.send_message(f"❌ Số warn không hợp lệ! **{member.name}** chỉ có **{total_warns}** warn.", ephemeral=True)
+                return
+            
+            # Xóa warning ở vị trí chỉ định (index - 1 vì máy tính đếm từ 0)
+            removed_warn = warnings[user_id].pop(index - 1)
+            msg = f"✅ Đã xóa cảnh cáo số **{index}** của **{member.name}**.\n📝 Lý do warn đó là: `{removed_warn['reason']}`"
+
+        # 3. Lưu lại file và thông báo
+        save_warnings(warnings)
+        await interaction.response.send_message(msg)
+
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Có lỗi khi xóa warn: {e}", ephemeral=True)
 
 # ======================================================
 # PHẦN 4: XỬ LÝ TIN NHẮN (GIỮ NGUYÊN CODE GỐC CỦA BẠN)
