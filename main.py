@@ -9,28 +9,42 @@ import datetime
 import json
 
 # ======================================================
-# PHẦN 1: CẤU HÌNH VÀ DỮ LIỆU
+# PHẦN 1: CẤU HÌNH
 # ======================================================
 
-# --- BẠN CẦN ĐIỀN THÔNG TIN VÀO ĐÂY ---
-ID_ADMIN = 1065648216911122506              # ID của bạn (Admin tối cao)
-MUTE_LOG_CHANNEL_ID = 1444909829469634590   # ID kênh thông báo phạt Mute
-WELCOME_CHANNEL_ID = 1371768187342815293     # <--- THAY ID KÊNH CHÀO MỪNG
-AUTO_ROLE_ID = 1445736048117157971           # <--- THAY ID ROLE "THÀNH VIÊN"
+# --- CÁC ID QUAN TRỌNG ---
+ID_ADMIN = 1065648216911122506              # ID Admin
+MUTE_LOG_CHANNEL_ID = 1444909829469634590   # ID Kênh Log (Cũ)
+WELCOME_CHANNEL_ID = 1371768187342815293    # ID Kênh Chào Mừng
+AUTO_ROLE_ID = 1445736048117157971          # ID Role Thành Viên
+WARN_CHANNEL_ID = 1445761128222163006       # ID Kênh thông báo Warn (MỚI)
 
-# Tên các file dữ liệu
 WARNING_FILE = "warnings.json"
 TU_CAM_FILE = "tucam.txt"
 WHITELIST_FILE = "id-user.txt"
 
-# --- HÀM HỖ TRỢ ĐỌC/GHI FILE ---
+# --- HÀM LOAD FILE AN TOÀN ---
+def load_warnings():
+    try:
+        with open(WARNING_FILE, "r") as f:
+            content = f.read().strip()
+            if not content: return {}
+            return json.loads(content)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
-def load_tu_cam(filename=TU_CAM_FILE):
+def save_warnings(data):
+    try:
+        with open(WARNING_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Lỗi lưu file: {e}")
+
+def load_list_from_file(filename):
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             return [line.strip().lower() for line in f if line.strip()]
     except FileNotFoundError:
-        print(f"⚠️ Lỗi: Không tìm thấy file {filename}.")
         return []
 
 def load_allowed_users(filename=WHITELIST_FILE):
@@ -38,332 +52,234 @@ def load_allowed_users(filename=WHITELIST_FILE):
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             for line in f:
-                line = line.strip()
-                if line.isdigit():
-                    allowed_ids.append(int(line))
+                if line.strip().isdigit():
+                    allowed_ids.append(int(line.strip()))
         return allowed_ids
     except FileNotFoundError:
-        print(f"⚠️ Lỗi: Không tìm thấy file {filename}.")
         return []
 
-def load_warnings():
-    try:
-        with open(WARNING_FILE, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-
-def save_warnings(data):
-    with open(WARNING_FILE, "w") as f:
-        json.dump(data, f, indent=4)
-
-# Tải dữ liệu ban đầu
-TU_CAM = load_tu_cam()
+TU_CAM = load_list_from_file(TU_CAM_FILE)
 ALLOWED_USER_IDS = load_allowed_users()
 
-# Thiết lập Intents (QUAN TRỌNG)
+# Setup Bot
 intents = discord.Intents.default()
 intents.message_content = True
-intents.members = True   # Cần để chào mừng và kick/ban
+intents.members = True 
 intents.presences = True
-
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # ======================================================
-# PHẦN 2: SỰ KIỆN BOT (EVENTS)
+# PHẦN 2: BẮT LỖI & SỰ KIỆN
 # ======================================================
+
+@bot.tree.error
+async def on_tree_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message("❌ Bạn không có quyền dùng lệnh này!", ephemeral=True)
+    elif isinstance(error, app_commands.BotMissingPermissions):
+        await interaction.response.send_message("❌ Bot thiếu quyền! Hãy kiểm tra Role của Bot.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"❌ Lỗi hệ thống: `{error}`", ephemeral=True)
+        print(f"⚠️ LỖI SLASH COMMAND: {error}")
 
 @bot.event
 async def on_ready():
-    # Đồng bộ lệnh Slash
     try:
         synced = await bot.tree.sync()
         print(f"✅ Đã đồng bộ {len(synced)} lệnh Slash.")
     except Exception as e:
         print(f"❌ Lỗi đồng bộ lệnh: {e}")
     
-    activity = discord.Activity(
-        name="Dev Quang Hiếu Đẹp Zai", 
-        type=discord.ActivityType.watching
-    )
-    await bot.change_presence(activity=activity)
-    
-    print('----------------------------------')
-    print(f'🤖 Bot đã đăng nhập: {bot.user}')
-    print(f'🛡️ Admin ID (Super User): {ID_ADMIN}')
-    print(f'🚫 Số lượng từ cấm: {len(TU_CAM)}')
-    print('----------------------------------')
+    await bot.change_presence(activity=discord.Activity(name="Dev Quang Hiếu", type=discord.ActivityType.watching))
+    print(f'🤖 Bot online: {bot.user} | Admin: {ID_ADMIN}')
 
-# --- SỰ KIỆN: THÀNH VIÊN MỚI VÀO ---
 @bot.event
 async def on_member_join(member):
-    # 1. Gửi lời chào
     channel = bot.get_channel(WELCOME_CHANNEL_ID)
     if channel:
-        embed = discord.Embed(
-            title="🎉 Chào mừng thành viên mới!",
-            description=f"Xin chào {member.mention} đã đến với máy chủ!",
-            color=discord.Color.green()
-        )
+        embed = discord.Embed(title="🎉 Chào mừng!", description=f"Xin chào {member.mention}!", color=discord.Color.green())
         embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
-        embed.set_footer(text=f"Bạn là thành viên thứ {len(member.guild.members)}")
         await channel.send(embed=embed)
-
-    # 2. Tự động cấp Role
+    
     role = member.guild.get_role(AUTO_ROLE_ID)
     if role:
-        try:
-            await member.add_roles(role)
-        except Exception as e:
-            print(f"❌ Không thể cấp role: {e}")
+        try: await member.add_roles(role)
+        except: print(f"❌ Lỗi cấp role cho {member.name}")
 
-# --- SỰ KIỆN: THÀNH VIÊN RỜI ĐI ---
 @bot.event
 async def on_member_remove(member):
     channel = bot.get_channel(WELCOME_CHANNEL_ID)
-    if channel:
-        await channel.send(f"😢 **{member.display_name}** đã rời khỏi server.")
+    if channel: await channel.send(f"😢 **{member.display_name}** đã rời server.")
 
 # ======================================================
-# PHẦN 3: CÁC LỆNH QUẢN LÝ (SLASH COMMANDS)
+# PHẦN 3: CÁC LỆNH (COMMANDS)
 # ======================================================
 
-# --- LỆNH PING ---
-@bot.tree.command(name="ping", description="Kiểm tra độ trễ (latency)")
-async def ping_slash(interaction: discord.Interaction):
-    await interaction.response.send_message(f'Độ trễ: {round(bot.latency * 1000)}ms')
+@bot.tree.command(name="ping", description="Xem độ trễ")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(f'Pong! {round(bot.latency * 1000)}ms')
 
-# --- LỆNH KICK (CHỈ ADMIN) ---
-@bot.tree.command(name="kick", description="Đuổi thành viên (Chỉ Admin)")
-@app_commands.describe(member="Thành viên cần kick", reason="Lý do")
-async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "Không có lý do"):
-    # Check ID Admin
-    if interaction.user.id != ID_ADMIN:
-        await interaction.response.send_message("❌ Mày tuổi gì đòi kick người? Chỉ Admin mới được dùng!", ephemeral=True)
-        return
-
-    if member.id == interaction.user.id:
-        await interaction.response.send_message("❌ Sao lại tự kick mình thế?", ephemeral=True)
-        return
-    
+# --- KICK & BAN & CLEAR ---
+@bot.tree.command(name="kick", description="Kick thành viên (Admin)")
+async def kick(interaction: discord.Interaction, member: discord.Member, reason: str = "Không"):
+    if interaction.user.id != ID_ADMIN: return await interaction.response.send_message("❌ Chỉ Admin được dùng!", ephemeral=True)
     try:
         await member.kick(reason=reason)
-        await interaction.response.send_message(f"👞 Đã sút **{member.name}** ra chuồng gà. Lý do: {reason}")
-    except discord.Forbidden:
-        await interaction.response.send_message("❌ Bot không kick được (Quyền hạn thấp hơn đối phương).", ephemeral=True)
+        await interaction.response.send_message(f"👞 Đã kick **{member.name}**.")
+    except Exception as e: await interaction.response.send_message(f"❌ Lỗi: {e}", ephemeral=True)
 
-# --- LỆNH BAN (CHỈ ADMIN) ---
-@bot.tree.command(name="ban", description="Cấm thành viên vĩnh viễn (Chỉ Admin)")
-async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "Vi phạm nghiêm trọng"):
-    # Check ID Admin
-    if interaction.user.id != ID_ADMIN:
-        await interaction.response.send_message("❌ Lệnh này cấm trẻ em và người lạ!", ephemeral=True)
-        return
-
+@bot.tree.command(name="ban", description="Ban thành viên (Admin)")
+async def ban(interaction: discord.Interaction, member: discord.Member, reason: str = "Không"):
+    if interaction.user.id != ID_ADMIN: return await interaction.response.send_message("❌ Chỉ Admin được dùng!", ephemeral=True)
     try:
         await member.ban(reason=reason)
-        await interaction.response.send_message(f"🔨 Đã BAN vĩnh viễn **{member.name}**. Lý do: {reason}")
-    except discord.Forbidden:
-        await interaction.response.send_message("❌ Không thể ban người này.", ephemeral=True)
+        await interaction.response.send_message(f"🔨 Đã ban **{member.name}**.")
+    except Exception as e: await interaction.response.send_message(f"❌ Lỗi: {e}", ephemeral=True)
 
-# --- LỆNH CLEAR (CHỈ ADMIN) ---
-@bot.tree.command(name="clear", description="Xóa tin nhắn (Chỉ Admin)")
-@app_commands.describe(amount="Số lượng tin nhắn cần xóa")
+@bot.tree.command(name="clear", description="Xóa tin nhắn (Admin)")
 async def clear(interaction: discord.Interaction, amount: int):
-    # Check ID Admin
-    if interaction.user.id != ID_ADMIN:
-        await interaction.response.send_message("❌ Đừng có nghịch xóa tin nhắn lung tung!", ephemeral=True)
-        return
-
-    if amount > 100:
-        await interaction.response.send_message("❌ Chỉ xóa tối đa 100 tin mỗi lần.", ephemeral=True)
-        return
-    
+    if interaction.user.id != ID_ADMIN: return await interaction.response.send_message("❌ Chỉ Admin được dùng!", ephemeral=True)
     await interaction.response.defer(ephemeral=True)
     deleted = await interaction.channel.purge(limit=amount)
-    await interaction.followup.send(f"🧹 Đã dọn dẹp **{len(deleted)}** tin nhắn.", ephemeral=True)
+    await interaction.followup.send(f"🧹 Đã xóa {len(deleted)} tin.")
 
-# --- LỆNH WARN (CHO PHÉP MOD DÙNG) ---
+# --- HÀM XỬ LÝ WARN CHUNG (Dùng cho cả lệnh /warn và tự động warn) ---
+async def process_warning(member: discord.Member, reason: str, moderator_name: str, guild):
+    warnings = load_warnings()
+    uid = str(member.id)
+    if uid not in warnings: warnings[uid] = []
+    
+    warnings[uid].append({"reason": reason, "mod": moderator_name, "time": str(datetime.datetime.now())})
+    save_warnings(warnings)
+    
+    # Tạo Embed thông báo
+    embed = discord.Embed(title="⚠️ CẢNH CÁO VI PHẠM", color=discord.Color.orange())
+    embed.add_field(name="Thành viên", value=member.mention, inline=False)
+    embed.add_field(name="Lý do", value=reason, inline=False)
+    embed.add_field(name="Số lần vi phạm", value=f"{len(warnings[uid])}/3", inline=True)
+    
+    # Gửi vào kênh WARN_CHANNEL_ID
+    warn_channel = guild.get_channel(WARN_CHANNEL_ID)
+    if warn_channel:
+        await warn_channel.send(embed=embed)
+    
+    # Kiểm tra phạt Mute nếu đủ 3 lần
+    if len(warnings[uid]) >= 3:
+         try:
+            await member.timeout(datetime.timedelta(hours=1))
+            if warn_channel:
+                await warn_channel.send(f"🚫 **{member.name}** đã bị Mute 1 tiếng do đủ 3 warning!")
+         except Exception as e:
+            if warn_channel:
+                await warn_channel.send(f"⚠️ Đủ 3 warn nhưng không Mute được (Lỗi quyền hoặc Admin): {e}")
+    
+    return embed # Trả về embed để dùng cho slash command nếu cần
+
+# --- LỆNH WARN (Gõ tay) ---
 @bot.tree.command(name="warn", description="Cảnh cáo thành viên")
 @app_commands.checks.has_permissions(manage_messages=True)
 async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
-    warnings = load_warnings()
-    user_id = str(member.id)
-    if user_id not in warnings: warnings[user_id] = []
-    
-    warnings[user_id].append({
-        "reason": reason, 
-        "moderator": interaction.user.name, 
-        "time": str(datetime.datetime.now())
-    })
-    save_warnings(warnings)
-    
-    embed = discord.Embed(title="⚠️ THÔNG BÁO CẢNH CÁO", color=discord.Color.orange())
-    embed.add_field(name="Thành viên", value=member.mention, inline=False)
-    embed.add_field(name="Lý do", value=reason, inline=False)
-    embed.add_field(name="Số lần vi phạm", value=f"{len(warnings[user_id])}/3", inline=True)
-    await interaction.response.send_message(embed=embed)
+    if member.bot or member.id == interaction.user.id:
+        return await interaction.response.send_message("❌ Không thể warn người này!", ephemeral=True)
 
-    # Phạt Mute nếu đủ 3 gậy
-    if len(warnings[user_id]) >= 3:
-         duration = datetime.timedelta(hours=1)
-         try:
-            await member.timeout(duration)
-            await interaction.channel.send(f"🚫 **{member.name}** đã bị cảnh cáo 3 lần và bị Mute 1 tiếng!")
-         except: pass
+    # Gọi hàm xử lý chung
+    embed = await process_warning(member, reason, interaction.user.name, interaction.guild)
+    await interaction.response.send_message(f"✅ Đã cảnh cáo {member.mention}", ephemeral=True) # Chỉ báo nhẹ cho người dùng lệnh
 
-# --- LỆNH CHECKWARN ---
-@bot.tree.command(name="checkwarn", description="Xem lịch sử cảnh cáo")
-async def checkwarn(interaction: discord.Interaction, member: discord.Member):
-    warnings = load_warnings()
-    user_id = str(member.id)
-    if user_id not in warnings or not warnings[user_id]:
-        await interaction.response.send_message(f"✅ **{member.name}** chưa có cảnh cáo nào.")
-        return
-
-    embed = discord.Embed(title=f"Lịch sử cảnh cáo: {member.name}", color=discord.Color.red())
-    for i, warn in enumerate(warnings[user_id], 1):
-        embed.add_field(name=f"Lần {i}", value=f"Lý do: {warn['reason']}\nBởi: {warn['moderator']}", inline=False)
-    await interaction.response.send_message(embed=embed)
-
-# --- LỆNH USERINFO ---
-@bot.tree.command(name="userinfo", description="Xem thông tin chi tiết thành viên")
-async def userinfo(interaction: discord.Interaction, member: discord.Member):
-    embed = discord.Embed(title=f"Thông tin: {member.name}", color=member.color)
-    embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
-    embed.add_field(name="ID", value=member.id, inline=True)
-    embed.add_field(name="Ngày tạo acc", value=member.created_at.strftime("%d/%m/%Y"), inline=False)
-    embed.add_field(name="Ngày vào Server", value=member.joined_at.strftime("%d/%m/%Y"), inline=False)
-    await interaction.response.send_message(embed=embed)
-# --- LỆNH UNWARN (THU HỒI CẢNH CÁO) ---
-@bot.tree.command(name="unwarn", description="Xóa cảnh cáo của thành viên")
-@app_commands.describe(member="Thành viên cần xóa warn", index="Số thứ tự warn cần xóa (Để trống sẽ xóa cái mới nhất)")
+@bot.tree.command(name="unwarn", description="Xóa cảnh cáo")
 @app_commands.checks.has_permissions(manage_messages=True)
 async def unwarn(interaction: discord.Interaction, member: discord.Member, index: int = None):
     warnings = load_warnings()
-    user_id = str(member.id)
+    uid = str(member.id)
 
-    # 1. Kiểm tra xem người này có warn nào không
-    if user_id not in warnings or not warnings[user_id]:
-        await interaction.response.send_message(f"✅ **{member.name}** rất ngoan, chưa có cảnh cáo nào để xóa.", ephemeral=True)
-        return
+    if uid not in warnings or not warnings[uid]:
+        return await interaction.response.send_message(f"✅ **{member.name}** không có cảnh cáo nào.", ephemeral=True)
 
-    total_warns = len(warnings[user_id])
-
-    # 2. Xử lý logic xóa
     try:
         if index is None:
-            # Nếu không nhập số -> Xóa cái cuối cùng (Warn mới nhất)
-            removed_warn = warnings[user_id].pop()
-            msg = f"✅ Đã thu hồi cảnh cáo **mới nhất** của **{member.name}**.\n📝 Lý do warn đó là: `{removed_warn['reason']}`"
+            removed = warnings[uid].pop()
+            msg = f"✅ Đã xóa warn mới nhất: `{removed['reason']}`"
         else:
-            # Nếu nhập số -> Kiểm tra số có hợp lệ không
-            if index <= 0 or index > total_warns:
-                await interaction.response.send_message(f"❌ Số warn không hợp lệ! **{member.name}** chỉ có **{total_warns}** warn.", ephemeral=True)
-                return
-            
-            # Xóa warning ở vị trí chỉ định (index - 1 vì máy tính đếm từ 0)
-            removed_warn = warnings[user_id].pop(index - 1)
-            msg = f"✅ Đã xóa cảnh cáo số **{index}** của **{member.name}**.\n📝 Lý do warn đó là: `{removed_warn['reason']}`"
-
-        # 3. Lưu lại file và thông báo
+            if index <= 0 or index > len(warnings[uid]):
+                return await interaction.response.send_message("❌ Số thứ tự không đúng.", ephemeral=True)
+            removed = warnings[uid].pop(index - 1)
+            msg = f"✅ Đã xóa warn số {index}: `{removed['reason']}`"
+        
         save_warnings(warnings)
         await interaction.response.send_message(msg)
-
     except Exception as e:
-        await interaction.response.send_message(f"❌ Có lỗi khi xóa warn: {e}", ephemeral=True)
+        await interaction.response.send_message(f"❌ Lỗi: {e}", ephemeral=True)
+
+@bot.tree.command(name="checkwarn", description="Xem cảnh cáo")
+async def checkwarn(interaction: discord.Interaction, member: discord.Member):
+    warnings = load_warnings()
+    uid = str(member.id)
+    if uid not in warnings or not warnings[uid]:
+        return await interaction.response.send_message(f"✅ **{member.name}** sạch sẽ.", ephemeral=True)
+
+    embed = discord.Embed(title=f"Lịch sử Warn: {member.name}", color=discord.Color.red())
+    for i, w in enumerate(warnings[uid], 1):
+        embed.add_field(name=f"Warn {i}", value=f"Lý do: {w['reason']}\nMod: {w['mod']}", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+@bot.tree.command(name="userinfo", description="Xem thông tin")
+async def userinfo(interaction: discord.Interaction, member: discord.Member):
+    embed = discord.Embed(color=member.color)
+    embed.set_thumbnail(url=member.avatar.url if member.avatar else member.default_avatar.url)
+    embed.add_field(name="Tên", value=member.name)
+    embed.add_field(name="ID", value=member.id)
+    embed.add_field(name="Ngày tạo", value=member.created_at.strftime("%d/%m/%Y"))
+    embed.add_field(name="Ngày vào", value=member.joined_at.strftime("%d/%m/%Y"))
+    await interaction.response.send_message(embed=embed)
 
 # ======================================================
-# PHẦN 4: XỬ LÝ TIN NHẮN (GIỮ NGUYÊN CODE GỐC CỦA BẠN)
+# PHẦN 4: XỬ LÝ TIN NHẮN (AUTO WARN TỪ CẤM)
 # ======================================================
-
 @bot.event
 async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    # --- ĐỊNH NGHĨA NGOẠI LỆ ---
-    is_exempt = (message.author.bot) or \
-                (message.author.id == ID_ADMIN) or \
-                (message.author.id in ALLOWED_USER_IDS)
+    if message.author == bot.user: return
+    
+    # Check Admin/Whitelist
+    is_exempt = (message.author.bot) or (message.author.id == ID_ADMIN) or (message.author.id in ALLOWED_USER_IDS)
 
     # --- KIỂM TRA TỪ CẤM ---
     if not is_exempt:
-        noi_dung = message.content.lower()
-        tu_cam_bi_phat_hien = [] 
+        content = message.content.lower()
+        # Tìm xem có từ cấm nào trong tin nhắn không
+        bad_words = [w for w in TU_CAM if w in content]
         
-        for tu in TU_CAM:
-            if tu in noi_dung:
-                tu_cam_bi_phat_hien.append(tu) 
-        
-        if tu_cam_bi_phat_hien:
+        if bad_words:
             try:
-                # 1. Tự động xóa tin nhắn
+                # 1. Xóa tin nhắn vi phạm
                 await message.delete()
                 
-                # 2. Áp dụng Timeout (Mute) 5 phút
-                duration = datetime.timedelta(minutes=5)
-                await message.author.timeout(duration) 
+                # 2. Tự động WARN thay vì Mute
+                reason_msg = "m đã dùng từ cấm"
+                await process_warning(message.author, reason_msg, "Hệ thống (Auto)", message.guild)
                 
-                # 3. Gửi LOG CÔNG KHAI
-                log_channel = bot.get_channel(MUTE_LOG_CHANNEL_ID)
-                if log_channel:
-                    await log_channel.send(
-                        f"Thằng **{message.author.display_name}** đã bị mute 5 phút."
-                    )
-                
-                # 4. Gửi cảnh báo tạm thời
-                msg = await message.channel.send(
-                    f"🚫 {message.author.mention}, bị cấm chat 5 phút vì vi phạm từ cấm!")
+                # 3. Gửi tin nhắn nhắc nhở nhẹ tại kênh chat (Tự xóa sau 5s)
+                temp = await message.channel.send(f"🚫 {message.author.mention} đã bị cảnh cáo vì dùng từ cấm!")
                 await asyncio.sleep(5)
-                await msg.delete()
-                
-                # 5. Báo cáo chi tiết cho Admin (DM)
-                detected_words_str = ", ".join(tu_cam_bi_phat_hien)
-                admin = await bot.fetch_user(ID_ADMIN)
-                await admin.send(
-                    f"⚠️ **Vi phạm**: {message.author.display_name} nhắn: `{message.content}` "
-                    f"(từ cấm: {detected_words_str}). Đã mute chó này 5 phút"
-                )
-                
-            except discord.errors.Forbidden:
-                await message.channel.send(f"❌ Bot thiếu quyền MUTE {message.author.mention}!")
+                await temp.delete()
                 
             except Exception as e:
-                if isinstance(e, discord.errors.HTTPException) and e.status == 429:
-                    print("⚠️ Bị Rate Limit. Đang nghỉ 3 giây...")
-                    await asyncio.sleep(3)
-                else:
-                    print(f"Lỗi xử lý từ cấm: {e}")
-            return 
+                print(f"Lỗi xử lý từ cấm: {e}")
+            return
 
-    # --- CHẶN TAG EVERYONE ---
+    # Tag all
     if message.mention_everyone and message.author.id != ID_ADMIN:
         try:
             await message.delete()
-            msg = await message.channel.send(f"🚫 {message.author.mention} không được tag all!")
+            temp = await message.channel.send(f"🚫 {message.author.mention} đừng tag all!")
             await asyncio.sleep(5)
-            await msg.delete()
-        except Exception:
-            pass
+            await temp.delete()
+        except: pass
 
     await bot.process_commands(message)
 
-# ======================================================
-# PHẦN 5: CHẠY BOT
-# ======================================================
-
+# Run
 keep_alive()
-
 if __name__ == "__main__":
     TOKEN = os.environ.get('DISCORD_TOKEN')
-
-    if not TOKEN:
-        print("❌ LỖI: Thiếu DISCORD_TOKEN trong Environment Variables.")
-    else:
-        while True:
-            try:
-                bot.run(TOKEN)
-            except Exception as e:
-                print(f"\n⚠️ Bot bị crash: {e}. Đang tự động khởi động lại sau 10 giây...")
-                time.sleep(10)
+    if not TOKEN: print("❌ Thiếu Token!")
+    else: bot.run(TOKEN)
